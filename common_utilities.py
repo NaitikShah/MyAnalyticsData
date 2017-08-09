@@ -304,3 +304,28 @@ def WriteToDB(query):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+"""
+    For aggregation of data. Specify time period (optional) for custom period. Be careful using time period, should not be less than data collection period which is typically 1  minute.
+Usage Examples:
+1) To do 10 mins aggregation without any Std deviation columns, use -- aggregate_param_based(df, '10T') --
+2) To do 5 mins aggregation with STD deviation, use  --  aggregate_param_based(df, '5T', True) --
+"""
+def aggregate_param_based_generic(df, time_period = '15T', add_SD = False):
+    interpolated_set = pd.DataFrame(df.index, index=df.index).resample(time_period).sum()
+    new_df = pd.concat([interpolated_set, df]).sort_index().interpolate(method='time')
+    agg_keys = set(df.columns).intersection(custom_constants.AGG_DICT)
+    agg_dict = { k:custom_constants.AGG_DICT[k] for k in agg_keys }
+    final_df = new_df.resample(time_period).agg(agg_dict)
+    if not add_SD:
+        return final_df.dropna()
+    else:
+        final_df = final_df.dropna()
+        stddev_df = new_df.resample(time_period).agg(np.std)
+        stddev_df = stddev_df[final_df.columns]
+        count_df = pd.DataFrame({'Count': new_df[new_df.columns[0]].resample(time_period).agg(np.count_nonzero) - 2}, index = stddev_df.index).dropna()
+        stddev_df.columns = stddev_df.columns.values + '_STDDEV'
+        stddev_df = stddev_df.dropna()
+        stats_df = pd.concat([stddev_df, count_df], axis = 1)
+        return pd.merge(final_df, stats_df, how='inner', left_index=True, right_index=True)
